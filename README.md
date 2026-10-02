@@ -78,4 +78,16 @@ $$T_{\text{walking}} = \frac{d_{\text{total}}}{v_{\text{walk}}} \times 60 \quad 
 Where $v_{\text{walk}} \approx 4.5 \text{ km/h}$ (average pedestrian walking speed) and $T_{\text{visit}}(k)$ is the user-allotted exploration duration at stop $k$.
 
 ---
-## Demo & Screenshots
+## 4. Interactive Web Application
+The application exposes a responsive web dashboard built with **Streamlit** and **Folium**:
+
+* **Sidebar Controls:** User-defined base location (hotel/starting point), multi-stop POI text parser with per-site visit durations, and a pedestrian speed slider.
+* **Geocoding Engine:** Asynchronous resolution of natural-language place names to `(lat, lon)` via OpenStreetMap / Nominatim.
+* **Interactive Mapping (`streamlit-folium`):**
+  * Auto-centered geospatial viewport with numbered stop markers.
+  * Polyline path tracing connecting stops along the computed optimal trajectory.
+* **Metrics & Schedule View:**
+  * Real-time KPIs: Total walking distance (km), estimated total duration (hours/minutes), and POI count.
+  * Chronological itinerary summary table (`pandas.DataFrame`).
+
+---
