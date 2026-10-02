@@ -1,21 +1,47 @@
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-import pandas as pd
+from datetime import datetime, timedelta
 
 from src.models import Location
 from src.geocoding import GeocodingService
 from src.optimizer import solve_itinerary
+from src.distance import haversine_distance
 
 # --- Streamlit App Configuration ---
 st.set_page_config(
-    page_title="OptiTrip - Route Planner",
+    page_title="OptiTrip — Route Planner",
     page_icon="🗺️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("🗺️ OptiTrip: Smart Itinerary Optimizer")
-st.caption("Calculate the best route for a day trip using the TSP algorithm (Greedy + 2-opt)")
+# Custom Banner CSS
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .hero-banner {
+        background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%);
+        padding: 22px 28px;
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 20px;
+    }
+    .hero-banner h1 {
+        color: white !important;
+        font-size: 2rem !important;
+        margin-bottom: 6px;
+    }
+    .hero-banner p {
+        color: #DBEAFE !important;
+        font-size: 1rem;
+        margin: 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize Geocoding Service
 @st.cache_resource
@@ -24,44 +50,62 @@ def get_geocoder():
 
 geocoder = get_geocoder()
 
-# --- SIDEBAR: INPUTS ---
-st.sidebar.header("📍 Settings & Points")
+# --- SIDEBAR: INPUTS & PRESETS ---
+with st.sidebar:
+    st.header("📍 Settings & Points")
+    
+    st.markdown("**Quick Presets:**")
+    col_p1, col_p2, col_p3 = st.columns(3)
+    preset_choice = None
+    if col_p1.button("Athens", use_container_width=True):
+        preset_choice = "athens"
+    if col_p2.button("Rome", use_container_width=True):
+        preset_choice = "rome"
+    if col_p3.button("Paris", use_container_width=True):
+        preset_choice = "paris"
 
-start_point = st.sidebar.text_input(
-    "Start Point (e.g., Hotel)",
-    value="Syntagma Square, Athens"
-)
+    if preset_choice == "rome":
+        default_start = "Roma Termini, Rome"
+        default_pois = "Colosseum, 120\nTrevi Fountain, 40\nPantheon Rome, 60\nPiazza Navona, 45"
+    elif preset_choice == "paris":
+        default_start = "Gare du Nord, Paris"
+        default_pois = "Eiffel Tower, 120\nLouvre Museum, 150\nArc de Triomphe, 50\nNotre Dame, 60"
+    else:
+        default_start = "Syntagma Square, Athens"
+        default_pois = (
+            "Acropolis of Athens, 120\n"
+            "Acropolis Museum, 90\n"
+            "National Garden Athens, 45\n"
+            "Monastiraki, 60"
+        )
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Points of Interest (POIs)")
+    start_point = st.text_input("Start Point (e.g., Hotel)", value=default_start)
 
-# Προκαθορισμένα examples για ευκολία
-default_pois = (
-    "Acropolis of Athens, 120\n"
-    "Acropolis Museum, 90\n"
-    "National Garden Athens, 45\n"
-    "Monastiraki, 60"
-)
+    pois_text = st.text_area(
+        "Points of Interest & Stay (Name, Minutes):",
+        value=default_pois,
+        height=140
+    )
 
-pois_text = st.sidebar.text_area(
-    "Enter points and visit durations (Name, Minutes):",
-    value=default_pois,
-    height=150
-)
+    col_speed, col_time = st.columns(2)
+    with col_speed:
+        walk_speed = st.slider("Speed (km/h)", 3.0, 6.0, 4.5, 0.5)
+    with col_time:
+        start_time_input = st.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
 
-walk_speed = st.sidebar.slider(
-    "Walking Speed (km/h)",
-    min_value=3.0,
-    max_value=6.0,
-    value=4.5,
-    step=0.5
-)
+    run_button = st.button("🚀 Calculate Optimal Route", type="primary", use_container_width=True)
 
-run_button = st.sidebar.button("🚀 Calculate Optimal Route", type="primary")
+# --- HERO BANNER ---
+st.markdown("""
+<div class="hero-banner">
+    <h1>OptiTrip 🗺️</h1>
+    <p>Algorithmic day-trip itinerary optimizer powered by TSP heuristics (Greedy + 2-opt).</p>
+</div>
+""", unsafe_allow_html=True)
 
 # --- MAIN BODY ---
 if run_button:
-    with st.spinner("Fetching coordinates and calculating route..."):
+    with st.spinner("Fetching coordinates and calculating optimal route..."):
         locations = []
         loc_id = 0
 
@@ -98,64 +142,81 @@ if run_button:
         # 3. Solve TSP
         solution = solve_itinerary(locations, start_idx=0, average_speed_kmh=walk_speed)
 
-    # --- DISPLAY RESULTS ---
+    # --- METRICS ---
     col1, col2, col3 = st.columns(3)
-    col1.metric("🚶‍♂️ Total Distance", f"{solution.total_distance_km} km")
+    col1.metric("🚶‍♂️ Total Walking Distance", f"{solution.total_distance_km} km")
     hours = int(solution.total_duration_min // 60)
     minutes = int(solution.total_duration_min % 60)
-    col2.metric("⏱️️ Total Time", f"{hours}h {minutes}m")
+    col2.metric("⏱ Total Itinerary Time", f"{hours}h {minutes}m")
     col3.metric("📍 Total Stops", len(solution.ordered_locations))
 
-    col_map, col_list = st.columns([3, 2])
+    st.markdown("---")
+
+    col_map, col_list = st.columns([7, 5])
 
     with col_map:
-        st.subheader("🗺️ Interactive Map")
+        st.subheader("🗺️ Interactive Route Map")
         
-        # Center the map on the start point
         center_lat = solution.ordered_locations[0].lat
         center_lon = solution.ordered_locations[0].lon
-        # ΝΕΟ (100% ανοιχτό, χωρίς κανένα κλειδί ή υδατογράφημα):
+        
+        # 100% ανοιχτός χάρτης χωρίς API keys
         m = folium.Map(location=[center_lat, center_lon], zoom_start=14, tiles="OpenStreetMap")
 
-        # Draw the route line
+        # Διαδρομή
         route_coords = [loc.to_coords() for loc in solution.ordered_locations]
         folium.PolyLine(
             route_coords,
             color="#2563EB",
             weight=4,
-            opacity=0.8,
+            opacity=0.85,
             dash_array="6"
         ).add_to(m)
 
-        # Add Markers with sequence numbers
+        # Pins
         for idx, loc in enumerate(solution.ordered_locations):
-            icon_color = "green" if idx == 0 else "blue"
+            is_start = (idx == 0)
+            icon_color = "green" if is_start else "blue"
+            icon_name = "play" if is_start else "info-sign"
             popup_text = f"<b>#{idx + 1} {loc.name}</b><br>Stay: {loc.visit_duration_min} min"
             
             folium.Marker(
                 location=loc.to_coords(),
                 popup=popup_text,
-                tooltip=f"{idx + 1}. {loc.name}",
-                icon=folium.Icon(color=icon_color, icon="info-sign")
+                tooltip=f"#{idx + 1}: {loc.name}",
+                icon=folium.Icon(color=icon_color, icon=icon_name)
             ).add_to(m)
 
-        # Display the map in Streamlit
-        st_folium(m, width="100%", height=500, returned_objects=[])
+        st_folium(m, width="100%", height=530, returned_objects=[])
 
     with col_list:
-        st.subheader("📋 Itinerary")
-        itinerary_data = []
-        for idx, loc in enumerate(solution.ordered_locations, start=1):
-            role = "Start" if idx == 1 else f"Stop {idx}"
-            itinerary_data.append({
-                "Order": idx,
-                "Point": loc.name,
-                "Duration (min)": loc.visit_duration_min
-            })
+        st.subheader("📋 Timetable & Schedule")
         
-        df = pd.DataFrame(itinerary_data)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
-        st.info("💡 The itinerary was automatically optimized using the 2-opt algorithm to minimize unnecessary travel.")
+        current_dt = datetime.combine(datetime.today(), start_time_input)
+        
+        for idx, loc in enumerate(solution.ordered_locations):
+            is_start = (idx == 0)
+            
+            with st.container(border=True):
+                if is_start:
+                    dep_time = current_dt.strftime("%H:%M")
+                    st.markdown(f"🟢 **Start Point:** {loc.name}")
+                    st.caption(f"🚩 Departure: **{dep_time}**")
+                else:
+                    prev_loc = solution.ordered_locations[idx - 1]
+                    leg_distance = haversine_distance(prev_loc.to_coords(), loc.to_coords())
+                    transit_min = (leg_distance / walk_speed) * 60
+                    
+                    arr_dt = current_dt + timedelta(minutes=transit_min)
+                    dep_dt = arr_dt + timedelta(minutes=loc.visit_duration_min)
+                    
+                    arr_str = arr_dt.strftime("%H:%M")
+                    dep_str = dep_dt.strftime("%H:%M")
+                    
+                    st.markdown(f"🔵 **Stop #{idx + 1}:** {loc.name}")
+                    st.markdown(f"🕒 **Arrive:** `{arr_str}` &nbsp;|&nbsp; **Depart:** `{dep_str}`")
+                    st.caption(f"🚶 Transit: ~{round(transit_min)} min ({round(leg_distance, 2)} km) &bull; Stay: {loc.visit_duration_min} min")
+                    
+                    current_dt = dep_dt
 else:
-    st.info("👈 Set the points of interest in the left column and click **Compute Optimal Itinerary**.")
+    st.info("👈 Set points of interest in the sidebar and click **Calculate Optimal Route**.")
