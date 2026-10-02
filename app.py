@@ -50,40 +50,61 @@ def get_geocoder():
 
 geocoder = get_geocoder()
 
-# --- SIDEBAR: INPUTS & PRESETS ---
+## --- SIDEBAR: INPUTS & PRESETS ---
+# Αρχικοποίηση session state για τα πεδία
+if "start_point_val" not in st.session_state:
+    st.session_state.start_point_val = "Syntagma Square, Athens"
+if "pois_text_val" not in st.session_state:
+    st.session_state.pois_text_val = (
+        "Acropolis of Athens, 120\n"
+        "Acropolis Museum, 90\n"
+        "National Garden Athens, 45\n"
+        "Monastiraki, 60"
+    )
+
+def set_city_preset(start, pois):
+    st.session_state.start_point_val = start
+    st.session_state.pois_text_val = pois
+
 with st.sidebar:
     st.header("📍 Settings & Points")
     
     st.markdown("**Quick Presets:**")
     col_p1, col_p2, col_p3 = st.columns(3)
-    preset_choice = None
-    if col_p1.button("Athens", use_container_width=True):
-        preset_choice = "athens"
-    if col_p2.button("Rome", use_container_width=True):
-        preset_choice = "rome"
-    if col_p3.button("Paris", use_container_width=True):
-        preset_choice = "paris"
+    
+    with col_p1:
+        if st.button("Athens", use_container_width=True):
+            set_city_preset(
+                "Syntagma Square, Athens",
+                "Acropolis of Athens, 120\nAcropolis Museum, 90\nNational Garden Athens, 45\nMonastiraki, 60"
+            )
+            st.rerun()
 
-    if preset_choice == "rome":
-        default_start = "Roma Termini, Rome"
-        default_pois = "Colosseum, 120\nTrevi Fountain, 40\nPantheon Rome, 60\nPiazza Navona, 45"
-    elif preset_choice == "paris":
-        default_start = "Gare du Nord, Paris"
-        default_pois = "Eiffel Tower, 120\nLouvre Museum, 150\nArc de Triomphe, 50\nNotre Dame, 60"
-    else:
-        default_start = "Syntagma Square, Athens"
-        default_pois = (
-            "Acropolis of Athens, 120\n"
-            "Acropolis Museum, 90\n"
-            "National Garden Athens, 45\n"
-            "Monastiraki, 60"
-        )
+    with col_p2:
+        if st.button("Rome", use_container_width=True):
+            set_city_preset(
+                "Roma Termini, Rome",
+                "Colosseum, 120\nTrevi Fountain, 40\nPantheon Rome, 60\nPiazza Navona, 45"
+            )
+            st.rerun()
 
-    start_point = st.text_input("Start Point (e.g., Hotel)", value=default_start)
+    with col_p3:
+        if st.button("Paris", use_container_width=True):
+            set_city_preset(
+                "Gare du Nord, Paris",
+                "Eiffel Tower, 120\nLouvre Museum, 150\nArc de Triomphe, 50\nNotre Dame, 60"
+            )
+            st.rerun()
+
+    # Τα πεδία συνδέονται απευθείας με το session_state
+    start_point = st.text_input(
+        "Start Point (e.g., Hotel)",
+        key="start_point_val"
+    )
 
     pois_text = st.text_area(
         "Points of Interest & Stay (Name, Minutes):",
-        value=default_pois,
+        key="pois_text_val",
         height=140
     )
 
