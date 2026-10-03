@@ -68,26 +68,36 @@ Finding the global optimum for the TSP is **NP-hard** ($O((N-1)!/2)$ ). OptiTrip
    * Replaces the tour whenever the new route length is strictly smaller ($\Delta D < 0$), iterating until a 2-optimal local minimum is achieved.
 
 ---
-## 3. Total Time Estimation
-Total itinerary duration accounts for transit as well as site engagement:
-
-$$T_{\text{total}} = T_{\text{walking}} + \sum_{k=1}^{N} T_{\text{visit}}(k)$$
-
-$$T_{\text{walking}} = \frac{d_{\text{total}}}{v_{\text{walk}}} \times 60 \quad (\text{minutes})$$
-
-Where $v_{\text{walk}} \approx 4.5 \text{ km/h}$ (average pedestrian walking speed) and $T_{\text{visit}}(k)$ is the user-allotted exploration duration at stop $k$.
+## 3.Realistic Street Routing (`src/routing.py`)
+While Haversine distances guide fast combinatorial exploration, real urban travel follows topological road networks:
+* **OSRM Foot Engine:** Connects to OpenStreetMap's Open Source Routing Machine (`/route/v1/foot`).
+* **Turn-by-Turn Polyline:** Extracts actual pedestrian sidewalks, street turns, and plazas for map rendering instead of Euclidean straight lines.
+* **Network Distance & Transit Time:** Computes true walking distances and transit durations based on street topology.
 
 ---
-## 4. Interactive Web Application
-The application exposes a responsive web dashboard built with **Streamlit** and **Folium**:
 
-* **Sidebar Controls:** User-defined base location (hotel/starting point), multi-stop POI text parser with per-site visit durations, and a pedestrian speed slider.
-* **Geocoding Engine:** Asynchronous resolution of natural-language place names to `(lat, lon)` via OpenStreetMap / Nominatim.
-* **Interactive Mapping (`streamlit-folium`):**
-  * Auto-centered geospatial viewport with numbered stop markers.
-  * Polyline path tracing connecting stops along the computed optimal trajectory.
-* **Metrics & Schedule View:**
-  * Real-time KPIs: Total walking distance (km), estimated total duration (hours/minutes), and POI count.
-  * Chronological itinerary summary table (`pandas.DataFrame`).
+### 4. Dynamic Time Scheduling Model
+OptiTrip translates spatial sequences into chronological clock-time itineraries:
+
+$$T_{\text{arr}}(k) = T_{\text{dep}}(k-1) + \Delta t_{\text{walk}}(k-1 \to k)$$
+
+$$T_{\text{dep}}(k) = T_{\text{arr}}(k) + T_{\text{visit}}(k)$$
+
+Where $\Delta t_{\text{walk}}$ is resolved dynamically via OSRM street transit times.
 
 ---
+
+## 🖥️ Interactive Web Application (`app.py`)
+
+* **Geocoding & Safety Guardrails:**
+  * Asynchronous coordinate resolution via OpenStreetMap.
+  * **$50\text{ km}$ Urban Distance Barrier:** Automatically excludes out-of-city entries to prevent absurd multi-day walking calculations.
+* **Interactive Folium Mapping:**
+  * Displays turn-by-turn pedestrian street polyline on top of OpenStreetMap tiles.
+  * Auto-centers map viewport with custom sequence pins and duration tooltips.
+* **Chronological Schedule View:**
+  * Clean UI containers showing specific arrival times, departure times, walking minutes, and site stays.
+* **Google Maps Navigation Integration:**
+  * Dynamically formats an encoded URL linking all stops as waypoints (`travelmode=walking`) for 1-click mobile GPS navigation.
+* **Quick-Load City Presets:**
+  * One-click presets for Athens, Rome, and Paris.
