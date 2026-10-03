@@ -2,10 +2,12 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 from datetime import datetime, timedelta
+import urllib.parse
 
 from src.models import Location
 from src.geocoding import GeocodingService
 from src.optimizer import solve_itinerary
+from src.routing import OSRMRoutingService
 from src.distance import haversine_distance
 
 # --- Streamlit App Configuration ---
@@ -43,15 +45,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize Geocoding Service
+# Services
 @st.cache_resource
 def get_geocoder():
     return GeocodingService()
 
 geocoder = get_geocoder()
 
-## --- SIDEBAR: INPUTS & PRESETS ---
-# Αρχικοποίηση session state για τα πεδία
+# --- SIDEBAR: INPUTS & PRESETS ---
 if "start_point_val" not in st.session_state:
     st.session_state.start_point_val = "Syntagma Square, Athens"
 if "pois_text_val" not in st.session_state:
@@ -96,11 +97,7 @@ with st.sidebar:
             )
             st.rerun()
 
-    # Τα πεδία συνδέονται απευθείας με το session_state
-    start_point = st.text_input(
-        "Start Point (e.g., Hotel)",
-        key="start_point_val"
-    )
+    start_point = st.text_input("Start Point (e.g., Hotel)", key="start_point_val")
 
     pois_text = st.text_area(
         "Points of Interest & Stay (Name, Minutes):",
@@ -120,13 +117,13 @@ with st.sidebar:
 st.markdown("""
 <div class="hero-banner">
     <h1>OptiTrip 🗺️</h1>
-    <p>Algorithmic day-trip itinerary optimizer powered by TSP heuristics (Greedy + 2-opt).</p>
+    <p>Algorithmic day-trip itinerary optimizer with realistic street network routing (OSRM + 2-opt).</p>
 </div>
 """, unsafe_allow_html=True)
 
 # --- MAIN BODY ---
 if run_button:
-    with st.spinner("Fetching coordinates and calculating optimal route..."):
+    with st.spinner("Fetching coordinates and solving TSP..."):
         locations = []
         loc_id = 0
 
@@ -135,11 +132,12 @@ if run_button:
         if not start_loc:
             st.error(f"Did not find coordinates for the start point: '{start_point}'")
             st.stop()
-        
         locations.append(start_loc)
         loc_id += 1
 
-        # 2. Parse & Geocode POIs
+        # 2. Parse & Validate POIs
+        MAX_ALLOWED_DISTANCE_KM = 50.0
+
         for line in pois_text.strip().split("\n"):
             line = line.strip()
             if not line:
@@ -151,23 +149,41 @@ if run_button:
 
             loc = geocoder.resolve_location(poi_name, location_id=loc_id, duration_min=duration)
             if loc:
-                locations.append(loc)
-                loc_id += 1
+                dist_from_start = haversine_distance(start_loc.to_coords(), loc.to_coords())
+                if dist_from_start > MAX_ALLOWED_DISTANCE_KM:
+                    st.warning(
+                        f"⚠ **Excluded point:** '{poi_name}' is {round(dist_from_start, 1)} km away. "
+                        f"OptiTrip limit is {MAX_ALLOWED_DISTANCE_KM} km."
+                    )
+                else:
+                    locations.append(loc)
+                    loc_id += 1
             else:
-                st.warning(f"Warning: The point '{poi_name}' was not recognized and has been excluded.")
+                st.warning(f"⚠️ **Not found:** The point '{poi_name}' could not be resolved and was excluded.")
 
         if len(locations) < 2:
-            st.warning("Please add at least one valid point of interest.")
+            st.warning("Please add at least one valid point of interest within 50 km of the starting location.")
             st.stop()
 
         # 3. Solve TSP
         solution = solve_itinerary(locations, start_idx=0, average_speed_kmh=walk_speed)
 
+    # 4. Fetch Real Street Route via OSRM
+    with st.spinner("Fetching pedestrian street network paths (OSRM)..."):
+        stop_coords = [loc.to_coords() for loc in solution.ordered_locations]
+        street_polyline, street_dist_km, street_walk_min = OSRMRoutingService.get_route_geometry(stop_coords)
+
+        # Αν το OSRM επέστρεψε επιτυχώς πραγματική απόσταση, τη χρησιμοποιούμε
+        effective_dist_km = street_dist_km if street_dist_km > 0 else solution.total_distance_km
+        total_visits_min = sum(loc.visit_duration_min for loc in solution.ordered_locations)
+        effective_walking_min = street_walk_min if street_walk_min > 0 else (effective_dist_km / walk_speed) * 60
+        total_trip_min = round(effective_walking_min + total_visits_min, 1)
+
     # --- METRICS ---
     col1, col2, col3 = st.columns(3)
-    col1.metric("🚶‍♂️ Total Walking Distance", f"{solution.total_distance_km} km")
-    hours = int(solution.total_duration_min // 60)
-    minutes = int(solution.total_duration_min % 60)
+    col1.metric("🚶‍♂️ Walking Distance (Streets)", f"{effective_dist_km} km")
+    hours = int(total_trip_min // 60)
+    minutes = int(total_trip_min % 60)
     col2.metric("⏱ Total Itinerary Time", f"{hours}h {minutes}m")
     col3.metric("📍 Total Stops", len(solution.ordered_locations))
 
@@ -176,22 +192,19 @@ if run_button:
     col_map, col_list = st.columns([7, 5])
 
     with col_map:
-        st.subheader("🗺️ Interactive Route Map")
+        st.subheader("🗺️ Street Network Route Map")
         
         center_lat = solution.ordered_locations[0].lat
         center_lon = solution.ordered_locations[0].lon
         
-        # 100% ανοιχτός χάρτης χωρίς API keys
         m = folium.Map(location=[center_lat, center_lon], zoom_start=14, tiles="OpenStreetMap")
 
-        # Διαδρομή
-        route_coords = [loc.to_coords() for loc in solution.ordered_locations]
+        # Σχεδιασμός πραγματικών μονοπατιών δρόμου (OSRM PolyLine)
         folium.PolyLine(
-            route_coords,
+            street_polyline,
             color="#2563EB",
-            weight=4,
-            opacity=0.85,
-            dash_array="6"
+            weight=5,
+            opacity=0.85
         ).add_to(m)
 
         # Pins
@@ -225,10 +238,14 @@ if run_button:
                     st.caption(f"🚩 Departure: **{dep_time}**")
                 else:
                     prev_loc = solution.ordered_locations[idx - 1]
-                    leg_distance = haversine_distance(prev_loc.to_coords(), loc.to_coords())
-                    transit_min = (leg_distance / walk_speed) * 60
+                    # Υπολογισμός πραγματικού σκέλους διαδρομής
+                    leg_coords, leg_dist, leg_time = OSRMRoutingService.get_route_geometry([prev_loc.to_coords(), loc.to_coords()])
                     
-                    arr_dt = current_dt + timedelta(minutes=transit_min)
+                    if leg_dist == 0:
+                        leg_dist = haversine_distance(prev_loc.to_coords(), loc.to_coords())
+                        leg_time = (leg_dist / walk_speed) * 60
+                    
+                    arr_dt = current_dt + timedelta(minutes=leg_time)
                     dep_dt = arr_dt + timedelta(minutes=loc.visit_duration_min)
                     
                     arr_str = arr_dt.strftime("%H:%M")
@@ -236,8 +253,21 @@ if run_button:
                     
                     st.markdown(f"🔵 **Stop #{idx + 1}:** {loc.name}")
                     st.markdown(f"🕒 **Arrive:** `{arr_str}` &nbsp;|&nbsp; **Depart:** `{dep_str}`")
-                    st.caption(f"🚶 Transit: ~{round(transit_min)} min ({round(leg_distance, 2)} km) &bull; Stay: {loc.visit_duration_min} min")
+                    st.caption(f"🚶 Walking: ~{round(leg_time)} min ({leg_dist} km) &bull; Stay: {loc.visit_duration_min} min")
                     
                     current_dt = dep_dt
+
+        # Google Maps URL
+        origin_query = urllib.parse.quote(solution.ordered_locations[0].name)
+        destination_query = urllib.parse.quote(solution.ordered_locations[-1].name)
+        
+        if len(solution.ordered_locations) > 2:
+            waypoints = [loc.name for loc in solution.ordered_locations[1:-1]]
+            waypoints_query = urllib.parse.quote("|".join(waypoints))
+            gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={origin_query}&destination={destination_query}&waypoints={waypoints_query}&travelmode=walking"
+        else:
+            gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={origin_query}&destination={destination_query}&travelmode=walking"
+
+        st.link_button("📱 Open Route in Google Maps", gmaps_url, use_container_width=True)
 else:
     st.info("👈 Set points of interest in the sidebar and click **Calculate Optimal Route**.")
