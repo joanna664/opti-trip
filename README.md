@@ -1,5 +1,6 @@
 # OptiTrip 🗺️
-> An algorithmic day-trip itinerary optimizer built with Python and Streamlit.
+> An algorithmic day-trip itinerary optimizer built with Python and Streamlit.  
+> **Author:** Ioanna Georgiou
 
 ## Overview
 OptiTrip solves a constrained Traveling Salesperson Problem (TSP) to calculate the shortest and most time-efficient route between points of interest in a city.
