@@ -1,9 +1,13 @@
 # OptiTrip 🗺️
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://optitrip.streamlit.app)
+
+👉 **Live Demo:** [optitrip.streamlit.app](https://optitrip.streamlit.app)
 > An algorithmic day-trip itinerary optimizer built with Python and Streamlit.  
 > **Author:** Ioanna Georgiou
 
 ## Overview
 OptiTrip solves a constrained Traveling Salesperson Problem (TSP) to calculate the shortest and most time-efficient route between points of interest in a city.
+
 ---
 ## Tech Stack
 - **Language:** Python 3.11+
